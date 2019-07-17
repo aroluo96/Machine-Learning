@@ -1,0 +1,344 @@
+---
+title: "Homework 3"
+author: "Yufan Luo"
+date: "7/4/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r seed}
+set.seed(seed = 9291)
+```
+
+```{r libraries}
+library(PASWR)
+library(dendextend)
+library(dendextend)
+```
+
+```{r source_files}
+
+```
+
+```{r functions}
+
+```
+
+```{r constants}
+
+```
+
+
+```{r load_data}
+
+```
+
+```{r clean_data}
+
+```
+
+
+## About the Data
+
+For this assignment, we will be analyzing data on the passengers from the ill-fated maiden voyage of the Titanic.  Within R's **PASWR** library, the data set **titanic3** can be accessed using the command **data(titanic3)**.  A description of the variables is available in the help file for this data set by typing **help(titanic3)**.
+
+
+## Question 1:  Data Exploration
+
+
+### 1a:  Survival
+
+How many passengers survived, and how many passed away as a result of the crash?
+
+```{r 1a}
+#data review
+data(titanic3)
+summary(titanic3)
+#data back up
+titanics<-titanic3
+#survival situation
+n.survival<-sum(titanic3$survived)
+n.passed_away<-nrow(titanic3)-n.survival
+n.survival;n.passed_away
+```
+
+
+### 1b:  Class of Tickets
+
+The ship sold tickets in 1st, 2nd, and 3rd class areas.  How many passengers were in each class?
+
+```{r 1b}
+table(titanic3$pclass)
+```
+
+
+### 1c:  Point of Embarcation
+
+Most of the passengers embarked from Southampton.  Let's create a new variable in the data set called **southampton** that will have the value 1 for passengers who embarked from Southampton and 0 for all other passengers (including any missing values).  Create this variable and then show how many passengers had the values of 1 and how many had the value of 0 for the **southampton** variable.
+
+```{r 1c}
+#Create variable
+titanic3$southampton<-ifelse (titanic3$embarked == 'Southampton',1,0)
+#Table the variable
+table(titanic3$southampton)
+```
+
+
+
+### 1d:  Sex of the Passengers
+
+Create a variable called **female** with the value 1 for females and 0 for males.  Show the counts of each category.
+
+
+```{r 1d}
+#create variable
+titanic3$female<-ifelse(titanic3$sex=='female',1,0)
+#table the variable
+table(titanic3$female)
+```
+
+### 1e: Fares
+
+Use the **summary** function to display some key figures about the distribution of the fares that the passengers paid.
+
+```{r 1e}
+summary(titanic3$fare)
+```
+
+
+
+### 1f:  Family Members
+
+Now use the summary function to display the key figures about the distribution of the number of siblings (**sibsp**) and separately for the number of parents or children (**parch**) on board.
+
+```{r 1f}
+#distribution of the number of siblings
+summary(titanic3$sibsp)
+#distribution of the number of parents or children
+summary(titanic3$parch)
+```
+
+### 1g:  Appropriate Summarization
+
+Do you think that providing the quartiles, minimum, maximum, and mean value are the best way to summarize the counts of the number of family members for each passenger?  If not, what would be a better way to summarize these variables?
+
+```{r 1g}
+#No. It would be better if we treat the number of siblings and the number of parents or children as factors, so we can figure out the distribution for each group.
+##solution 1
+#sibsp
+table(as.factor(titanics$sibsp))
+#parch
+table(as.factor(titanics$parch))
+```
+
+
+
+## Question 2:  Clustering Models
+
+To better investigate the relationships between the passengers, we will use clustering analysis on the following variables:
+
+* age
+* female
+* fare
+* sibsp
+* parch
+* southampton
+
+
+For this exercise, create a separate data.frame called **measured.dat**.  This object should include only the variables listed above, along with the **survived** variable.  Use the **na.omit** function to restrict the rows to those completely measured (without any missing data).  Then use the **scale** function to standardize all of the values in units of the number of standard deviations above average, which will be stored in a matrix called **subdat**.  The **subdat** will only contain the predictors, not the **survived** outcome.  We will use the **subdat** object to answer the following questions.
+
+```{r q2}
+#create data.frame
+names(titanic3)
+measured.dat<-titanic3[,c("survived","age","female","fare","sibsp","parch","southampton")]
+#na.omit
+measured.dat<-na.omit(measured.dat)
+summary(measured.dat)
+#find out class of each variable
+lapply(measured.dat,class)
+#scale and subdat
+subdat<-scale(measured.dat[,c(2:6)])
+```
+
+### 2a:  Hierarchical Clustering
+
+Use hierarchicical clustering with complete linkage to cluster the **subdat**.  Assign each passenger to one of 5 clusters.  Add these assignments as a column called **hclust.group** to the **measured.dat**.  Then show a dendrogram depicting the results of the hierarchical clustering.  Using the **color_branches** method of the **dendextend** library may provide a helpful visualization.
+
+```{r 2a}
+#cluster
+d=dist(x=subdat,method='euclidean')
+clusters=hclust(d=d,method='complete')
+#segments
+h_segments<-cutree(tree=clusters,k=5)
+#create variable
+measured.dat$hclust.group=h_segments
+#visualization
+library(dendextend)
+plot(color_branches(as.dendrogram(clusters),k=5,groupLables=F))
+```
+
+### 2b:  K-Means
+
+Now use K-Means clustering with 5 centers and iter.max = 20 to cluster the **subdat**.  Set the randomization seed to 821 just prior to running the algorithm  Add the clustering assignments as a column called **kmeans.group** to the **measured.dat**.  Then plot the **fare** versus the **age** for each passenger while assigning different colors to their kmeans clustering assignment.
+
+```{r 2b}
+set.seed(seed = 821)
+#cluster
+km=kmeans(x=subdat,centers=5,iter.max = 20)
+#create variable
+measured.dat$kmeans.group<-km$cluster
+plot(x=measured.dat$fare,y=measured.dat$age,col=measured.dat$kmeans.group)
+```
+
+
+## Question 3:  Models
+
+### 3a
+
+Now we would like to build a logistic regression model for **survived** using the **measured.dat**.  Include all of the following predictor variables:
+
+* age
+* female
+* fare
+* sibsp
+* parch
+* southampton
+
+Fit this model and show a summary of the estimated coefficients.
+
+```{r 3a}
+logistic.model<-glm(survived~age+female+fare+sibsp+parch+southampton,data=measured.dat,family='binomial')
+summary(logistic.model)
+```
+
+
+### 3b:  Odds Ratios
+
+The model's estimated coefficients are on a logarithmic scale.  The estimated Odds Ratio, which is the exponential of the estimated coefficient, can be more easily interpreted.  Compute the estimated Odds Ratio of each variable.  Then compute a 95% confidence interval for the Odds Ratio.  To do so, you can exponentiate the 95% confidence interval for the coefficient.
+
+
+```{r 3b}
+#odds.ratios
+exp(coef(logistic.model))
+#confidence interval
+exp(confint(logistic.model,level=0.95))
+```
+
+
+### 3c:  Increased Odds of Survival
+
+Which factors led to an increased likelihood of survival that was statistically significant at the 0.05 level?
+
+```{r 3c}
+#female and fare
+```
+
+
+### 3d:  Decreased Odds of Survival
+
+Which factors led to an decreased likelihood of survival that was statistically significant at the 0.05 level?
+
+```{r 3d}
+#age, sibsp, and southampton
+```
+
+### 3e:  In-Sample Results
+
+For the first 10 rows of the **measured.dat**, show the model's fitted value (an estimated probability of survival) and the passenger's actual survival status.
+
+```{r 3e}
+pred<-predict(logistic.model,newdata=measured.dat[1:10,],type='response')
+results1<-data.frame("prediction"=pred,"actual"=measured.dat$survived[1:10])
+results1
+```
+
+### 3f:  In-Sample Evaluation
+
+For all of the rows of the **measured.dat**, create an estimated classification of a passenger's survival status by rounding the logistic regression model's estimated likelihood to 1 or 0.  Then compute the percentage of false positives, the percentage of false negatives, and the overall percentage of correct classifications.
+
+```{r 3f}
+#create variable
+#measured.dat$pred.status<-as.numeric(predict(logistic.model,newdata=measured.dat,type='response')>0.5)
+measured.dat$pred.status<-round(predict(logistic.model,newdata=measured.dat,type='response'),0)
+head(measured.dat)
+#table tp,fp,fn,tn
+ct<-table(Truth=measured.dat$survived,Prediction=measured.dat$pred.status) 
+#fpr,fnr,cc
+fpr=ct[2,1]/sum(ct[1,1],ct[2,1]);fpr
+fnr=ct[1,2]/sum(ct[1,2],ct[2,2]);fnr
+cc=sum(ct[1,1],ct[2,2])/sum(ct[1,1],ct[1,2],ct[2,1],ct[2,2]);cc
+```
+
+## Question 4:  Added Information
+
+Does a clustering assignment add information to a predictive model?  One way to assess this question is to add the group assignments of a clustering procedure (as a categorical variable) to a regression model that already includes the variables that were used to build the clustering model.  With this approach, we will evaluate the information added by our earlier clustering work in Question 2 to the logistic regression model built in Question 3.
+
+### 4a:  Hierarchical Clustering Assignments as a Predictor of Survival
+
+Fit a logistic regression model of **survived** in terms of the following variables:
+
+* age
+* female
+* fare
+* sibsp
+* parch
+* southampton
+* hclust.group (as a categorical variable)
+
+Show a summary of the estimated coefficients and evaluate whether the hierarchical clustering assignments add information to the predictions.
+
+```{r 4a}
+class(measured.dat$hclust.group)
+measured.dat$hclust.group<-as.factor(measured.dat$hclust.group)
+h.model<-glm(survived~age+female+fare+sibsp+parch+southampton+hclust.group,data=measured.dat,family='binomial')
+summary(h.model)
+```
+
+
+### 4b:  K-Means Clustering Assignments as a Predictor of Survival
+
+Repeat the exercise of 4a using the **kmeans.group** as a predictor instead of **hclust.group**.
+
+
+```{r 4b}
+class(measured.dat$kmeans.group)
+measured.dat$kmeans.group<-as.factor(measured.dat$kmeans.group)
+km.model<-glm(survived~age+female+fare+sibsp+parch+southampton+kmeans.group,data=measured.dat,family='binomial')
+summary(km.model)
+```
+
+
+### 4c:  Both Clustering Assignments
+
+Now repeat the exercise using **both** clustering assignments as predictors.
+
+```{r 4c}
+both.model<-glm(survived~age+female+fare+sibsp+parch+southampton+hclust.group+kmeans.group,data=measured.dat,family='binomial')
+summary(both.model)
+```
+
+
+### 4d:  Interpretation of Added Information
+
+What does it mean to **add information** to a model?  Is clustering a worthwhile exercise as a method of building a predictive model?  Write a few sentences to explain your answers.
+
+Answer: Adding information to a model means adding complexity to the model at the same time. On the one hand, the model will fit training data well (we can tell from AIC, which decreases each time with more information), but will also lead to the problem of overfitting. So we need to use several techniques to find sweet point, such as cross validation.
+
+## Question 5:  Description Versus Prediction
+
+### 5a:  Training and Testing Sets?
+
+The logistic regressions developed above did not split the data into separate training and testing sets.  What would we have gained by doing so?  Explain your answer in a few sentences.
+
+Answer: As mentioned above, the model may have the problem of overfitting with so much (overlapped) informationsuch and with such high complexity. Once we split data, we may find the model explains training data well, but performs badly with testing data. 
+
+
+### 5b:  Application of the Titanic's Predictive Model
+
+Would it even make sense to use the logistic regression model for the Titanic's passengers to make a prediction?  Explain your opinion with a few sentences.
+
+Answer: It would be better to use logistic regression, because the dependent variable has two values Yes(Survived) and No(Not Survived). Logistic regression models the probability that an object belongs to a class. 
+Whereas, linear regression would be more useful when the dependent variable is considered continuous.
