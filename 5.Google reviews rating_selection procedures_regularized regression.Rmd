@@ -1,0 +1,359 @@
+---
+title: "Homework 4"
+author: "Yufan Luo, yl4070"
+date: "7/17/2019"
+output:
+  prettydoc::html_pretty:
+  theme: cayman
+highlight: github
+---
+  
+```{r setup, include=FALSE}
+library(knitr)
+opts_chunk$set(echo = TRUE, comment="", warning = FALSE, message = FALSE, tidy.opts=list(width.cutoff=55), tidy = FALSE)
+```
+
+```{r seed}
+set.seed(29923)
+```
+
+```{r libraries}
+library(data.table)
+library(DT)
+library(glmnet)
+```
+
+```{r source_files}
+
+```
+
+```{r functions}
+round.numerics<-function(x,digits=2){if(is.numeric(x)){
+  x<-round(x=x,digits=digits)
+  }
+  return(x)
+}
+```
+
+```{r constants}
+
+```
+
+
+```{r load_data}
+ratings<-read.csv("C:/Users/luoyu/Desktop/ML/8/HOMEWORK/ratings.csv",stringsAsFactors = F)
+```
+
+```{r clean_data}
+
+
+```
+
+
+## About the Data
+
+For this assignment, we will be analyzing data from users of Google Reviews.  The file **ratings.csv** contains (lightly edited) information on the average ratings of thousands of users across a wide variety of categories.  All of the user's ratings were on a scale from 0 to 5, and these values were averaged by category.  Each user's averages for the categories appear in one row of the file.  For more details, see http://archive.ics.uci.edu/ml/datasets/Tarvel+Review+Ratings#.
+
+The data includes a variable called **user** that provides a unique identifier.  The **set** variable divided the data into training and testing sets.  Otherwise, all of the variables are categories of ratings.
+
+Using these data, answer the following questions.
+
+## Question 1:  Preparation and Summarization
+
+### 1a:  Creating an Outcome
+
+For this study, we will be focused on the question of predicting the ratings of **accommodations** for travelers in terms of all of the other experiences available.  Because travelers can either stay in **resorts** or in **hotels_lodging**, we will create an overall measure of satisfaction.  Add a column to your data set named **accommodations**.  This will be defined as the user's average of their scores on **resorts** and **hotels_lodging**.  Show the code for how you constructed the **accommodations** variable.
+
+```{r 1a}
+ratings$accommodations<-(ratings$resorts+ratings$hotels_lodging)/2
+head(ratings,20)
+```
+
+### 1b:  Summarization
+
+For each category of rating, including the newly created **accommodations** variable, show the average and the standard deviation of the recorded values on the training set.  Show the results in a table.  Round your answers to a reasonable number of decimal places.
+
+```{r q1}
+train<-subset(ratings,set=='train')
+test<-subset(ratings,set=='test')
+mean.and.sd<-function(x){
+  require(data.table)
+  res<-t(data.table(Mean=mean(x,na.rm=T),SD=sd(x,na.rm=T)))
+  return(res)
+}
+names(ratings)
+the.variables<-c("churches","resorts","beaches","parks","theaters","museums","malls","zoo","restaurants","bars_pubs","local_services","burger_pizza","hotels_lodging","juice_bars","art_galleries","dance_clubs","swimming_pools","gyms","bakeries","beauty_spas","cafes","view_points","monuments","gardens","accommodations")
+train.dt<-as.data.table(train,keep.rownames = T)
+train.summary<-data.table(Metrics=c("Mean","SD"),train.dt[,lapply(X=.SD,FUN='mean.and.sd'),.SDcols=the.variables])
+datatable(data=train.summary[,lapply(X=.SD, FUN="round.numerics")],rownames=F)
+```
+
+## Question 2:  Linear Regression
+
+### 2a
+
+Use the training data to create a linear regression model for the **accommodations** outcome.  The predictor variables should include every rating variable except for **resorts** and **hotels_lodging**.  No other predictors should be used.  Build the model and display a summary of the coefficients.  Show a summary of the resulting model's coefficients, rounded to a reasonable number of digits.
+
+```{r 2a}
+linear.model<-lm(accommodations~churches+beaches+parks+theaters+museums+malls+zoo+restaurants+bars_pubs+local_services+burger_pizza+juice_bars+art_galleries+dance_clubs+swimming_pools+gyms+bakeries+beauty_spas+cafes+view_points+monuments+gardens,data=train)
+summary(linear.model)
+the.coefs<-as.data.table(x=summary(linear.model)$coefficients,keep.rownames=T)
+datatable(the.coefs[,lapply(X= .SD, FUN="round.numerics",digits=4)])
+```
+
+### 2b
+
+Based on the linear model's results, which categories are associated with an **increase** in the average ratings for **accommodations** in a statistically significant way?  Display the summary of the linear model's coefficients for this set of variables.  This table should be sorted in order of the effect size (the estimated coefficient) to show the strongest effects first.
+
+```{r 2b}
+#"churches","beaches","parks","theaters","zoo","restaurants","berger_pizza","juice_bars","art_galleries","gyms","bakeries","beauty_spas",and "gardens" positively impact "accommodations" in a statistically significant way.
+p_value=summary(linear.model)$coefficients[-1,4]
+the.coefs.increase<-subset(the.coefs,Estimate>0 & p_value<0.05)
+the.coefs.increase.ordered<-the.coefs.increase[order(Estimate,decreasing=T)]
+datatable(the.coefs.increase.ordered[, lapply(X=.SD,FUN='round.numerics',digits=4)])
+```
+
+### 2c
+
+Which categories are associated with an **decrease** in the average ratings for **accommodations** in a statistically significant way?  Display the summary of the linear model's coefficients for this set of variables.  This table should be sorted in order of the effect size (the estimated coefficient) to show the strongest effects first.
+
+```{r 2c}
+#"swimming_pools","view_points","museums",and "malls" negatively impact "accommodations" in a statistically significant way.
+the.coefs.decrease<-subset(the.coefs,Estimate<0 & p_value<0.05)
+the.coefs.decrease.ordered<-the.coefs.decrease[order(Estimate)]
+datatable(the.coefs.decrease.ordered[, lapply(X=.SD,FUN='round.numerics',digits=4)])
+```
+
+
+### 2d
+
+Based on the linear model's results, which categories did not show statistically significant relationships with the **accommodations**?
+
+```{r 2d}
+#"bars_pubs", "local_services", "dance_clubs", "cafes", and "monuments" did not show statistically significant relationships with the "accommodations". Also variables such as "malls", "museums", "art_galleries", "gardens", "zoo", "gyms", "parks", "beauty_spas", and "bakeries" show small effect size that are less than 0.05, so the impact isn't so meaningful.
+```
+
+
+### 2e
+
+Using the root mean squared error (RMSE) as a metric, how accurate is the linear model in terms of predicting the ratings for **accommodations** on the testing set?
+
+
+```{r 2e}
+my.rmse<-function(model,data){
+  pred<-predict(model,newdata=data)
+  rmse<-sqrt(mean((pred-data$accommodations)^2))
+}
+rmse.linear<-my.rmse(linear.model,test);rmse.linear
+```
+
+## Question 3:  Selection Procedures
+
+### 3a
+
+Use **forward stepwise regression** to create a separate linear regression model of **accommodations** on the training set.  The procedure should start with a model that only includes an intercept, and allowing the model to grow as large as including all of the predictors used in Question 2.  Show a summary of the resulting model's coefficients, rounded to a reasonable number of digits.
+
+**Note**:  The **capture.output** function can be used to prevent R from printing out all of the intermediate calculations performed in stepwise regression.  You are not required to use this method, but it will help you to create reports that maintain good readability while using methods like this.
+
+```{r 3a}
+start_mod=lm(accommodations~1,data=train)
+empty_mod=lm(accommodations~1,data=train)
+full_mod=lm(accommodations~churches+beaches+parks+theaters+museums+malls+zoo+restaurants+bars_pubs+local_services+burger_pizza+juice_bars+art_galleries+dance_clubs+swimming_pools+gyms+bakeries+beauty_spas+cafes+view_points+monuments+gardens,data=train)
+forwardStepwise=step(start_mod,scope=list(upper=full_mod,lower=empty_mod),direction='forward')
+summary(forwardStepwise)
+```
+
+### 3b
+
+Use **backward stepwise regression** to create a separate linear regression model of **accommodations** on the training set.  The procedure should start with the full model you built in Question 2 while allowing the model to become as small as one that only includes an intercept.  Show a summary of the resulting model's coefficients, rounded to a reasonable number of digits.
+
+
+```{r 3b}
+start_mod=lm(accommodations~churches+beaches+parks+theaters+museums+malls+zoo+restaurants+bars_pubs+local_services+burger_pizza+juice_bars+art_galleries+dance_clubs+swimming_pools+gyms+bakeries+beauty_spas+cafes+view_points+monuments+gardens,data=train)
+empty_mod=lm(accommodations~1,data=train)
+full_mod=lm(accommodations~churches+beaches+parks+theaters+museums+malls+zoo+restaurants+bars_pubs+local_services+burger_pizza+juice_bars+art_galleries+dance_clubs+swimming_pools+gyms+bakeries+beauty_spas+cafes+view_points+monuments+gardens,data=train)
+backwardStepwise=step(start_mod,scope=list(upper=full_mod,lower=empty_mod),direction='backward')
+summary(backwardStepwise)
+```
+
+### 3c
+
+Describe the similarities and differences in the results obtained by forward and backward stepwise selection.
+Answers:
+Similarities: 
+1) Both methods follow the idea of finding the best subsets regression that has the least squares t.
+2) Both methods follow the selection criterion: residual sum of squares(RSS).
+3) Both methods will pay a price in variance, because the model that perfroms well in training data does not necessarily perform well in testing data.
+Differences: 
+1) Forward method starts with a subset that contains no predictors, while backward method starts with a subset that contains all the predictors.
+2) Forward method searches through the (p-1) variables and finds out by adding which variable to the current model the residual sum of squares will be improved.The process continues until stopping rule is satisfied. While backward method drops the least statistically significant variable till the stopping rule is satisfied. 
+
+### 3d
+
+Use the results from the forward selection and backward selection models to make predictions on the testing set.  Calculate the RMSE of each set of predictions.  Show the RMSE of linear regression, forward selection, and backward selection in a table.  Round the results to a reasonable number of digits.
+
+```{r 3d}
+#forward
+forward.model=lm(formula = accommodations ~ juice_bars + beaches + burger_pizza + 
+    churches + theaters + view_points + beauty_spas + restaurants + 
+    museums + bakeries + swimming_pools + parks + malls + zoo + 
+    art_galleries + gyms + gardens + cafes, data = train)
+rmse.forward<-my.rmse(forward.model,test)
+#backward
+backward.model=lm(formula = accommodations ~ churches + beaches + parks + theaters + 
+    museums + malls + zoo + restaurants + burger_pizza + juice_bars + 
+    art_galleries + swimming_pools + gyms + bakeries + beauty_spas + 
+    cafes + view_points + gardens, data = train)
+pred.backward<-predict(backward.model,newdata=test)
+rmse.backward=my.rmse(backward.model,test)
+#datatable
+rmse<-data.table(rmse.linear=rmse.linear,rmse.forward=rmse.forward,rmse.backward=rmse.backward)
+datatable(rmse[, lapply(X= .SD, FUN="round.numerics",digits=4)],rownames=F)
+```
+
+
+## Question 4:  Regularized Regression
+
+### 4a
+
+Use **ridge regression** to create a model of **accommodations** on the training set.  The model should include the same predictors used to build the linear regression above. Display the model's coefficients, rounded to a reasonable number of digits.
+
+This can be implemented using the **glmnet** function in the **glmnet** package.  Note that ridge regression is specified when **alpha = 0**.
+
+```{r 4a}
+x_train=model.matrix(accommodations~churches+beaches+parks+theaters+museums+malls+zoo+restaurants+bars_pubs+local_services+burger_pizza+juice_bars+art_galleries+dance_clubs+swimming_pools+gyms+bakeries+beauty_spas+cafes+view_points+monuments+gardens-1,data=train)
+y_train=train$accommodations
+ridge.model.fit<-glmnet(x_train,y_train,alpha=0)
+plot(ridge.model.fit,xvar="lambda",lable=T)
+cv.ridge<-cv.glmnet(x_train,y_train,alpha=0)
+plot(cv.ridge)
+coef.ridge<-as.matrix(round(coef(cv.ridge),4))
+datatable(coef.ridge)
+```
+
+### 4b
+
+Use **lasso regression** to create a model of **accommodations** on the training set.  The model should include the same predictors used to build the linear regression above. Display the model's coefficients, rounded to a reasonable number of digits.
+
+This can be implemented using the **glmnet** function in the **glmnet** package.  Note that lasso regression is specified when **alpha = 1**.
+
+```{r 4b}
+lasso.model.fit<-glmnet(x_train,y_train,alpha=1)
+plot(lasso.model.fit,xvar="lambda",lable=T)
+cv.lasso<-cv.glmnet(x_train,y_train,alpha=1)
+plot(cv.lasso)
+coef.lasso<-as.matrix(round(coef(cv.lasso),4))
+datatable(coef.lasso)
+```
+
+### 4c
+
+Use the ridge and lasso regression models to generate predictions on the testing set.  Compute the RMSE for each set of predictions.  Add these values to the table of RMSE values that includes those for linear regression and the stepwise procedures.  Round the table to a reasonable number of digits.
+
+```{r 4c}
+x_test=model.matrix(accommodations~churches+beaches+parks+theaters+museums+malls+zoo+restaurants+bars_pubs+local_services+burger_pizza+juice_bars+art_galleries+dance_clubs+swimming_pools+gyms+bakeries+beauty_spas+cafes+view_points+monuments+gardens-1,data=test)
+y_test=test$accommodations
+pred.ridge<-predict(ridge.model.fit,s=cv.ridge$lambda.1se,newx=x_test)
+rmse.ridge<-sqrt(mean((pred.ridge-y_test)^2))
+rmse[,"rmse.ridge":=rmse.ridge]
+pred.lasso<-predict(lasso.model.fit,s=cv.lasso$lambda.1se,newx=x_test)
+rmse.lasso<-sqrt(mean((pred.lasso-y_test)^2))
+rmse[,"rmse.lasso":=rmse.lasso]
+datatable(rmse[, lapply(X= .SD, FUN="round.numerics",digits=4)],rownames=F)
+```
+
+### 4d
+
+Comment on the results.  Were the results of the models reasonably similar or quite different?  What is the reason for this?
+
+Answer: 
+I think the results are quite similar. 
+
+When we have lots of predictors or the predictors are correlated, the standard OLS parameter estimates have large variance. Thus, we conducted feature selection to reduce variance at the cost of increasing bias. Selection procedures solve the problem by reducing predictors, while regularization procedures solve the problem of multicollinearity by forcing the coefficients of predictors to zero.
+
+The results for models after selection procedures are quite similar in this case, but slightly worse than the linear regression model. I think it could because there is no problem of multicollinearity in our dataset, so the standard linear regression model explains the data well. After adapting selection procedures, we miss some information in the trainning data and thus add bias to the model.
+
+## Question 5
+
+How would the results for the regularized methods (ridge and lasso) have changed if we had utilized less data in the training set?  We will explore this question in the following parts.
+
+### 5a
+
+Create a reduced training set that only contains the first 250 rows of the training data.  Then fit a ridge regression model on this reduced training set with a similar specification to the earlier model.  Display the coefficients of the model, rounded to a reasonable number of decimal places.
+
+```{r 5a}
+newtrain<-train[1:250,]
+x_newtrain=model.matrix(accommodations~churches+beaches+parks+theaters+museums+malls+zoo+restaurants+bars_pubs+local_services+burger_pizza+juice_bars+art_galleries+dance_clubs+swimming_pools+gyms+bakeries+beauty_spas+cafes+view_points+monuments+gardens-1,data=newtrain)
+y_newtrain=newtrain$accommodations
+newridge.model.fit<-glmnet(x_newtrain,y_newtrain,alpha=0)
+plot(newridge.model.fit,xvar="lambda",lable=T)
+cv.newridge<-cv.glmnet(x_newtrain,y_newtrain,alpha=0)
+plot(cv.newridge)
+coef.newridge<-as.matrix(round(coef(cv.newridge),4))
+datatable(coef.newridge)
+```
+
+
+### 5b
+
+Now fit a lasso regression model on this reduced training set with a similar specification to the earlier model.  Display the coefficients of the model, rounded to a reasonable number of decimal places.
+
+```{r 5b}
+newlasso.model.fit<-glmnet(x_newtrain,y_newtrain,alpha=1)
+plot(newlasso.model.fit,xvar="lambda",lable=T)
+cv.newlasso<-cv.glmnet(x_newtrain,y_newtrain,alpha=1)
+plot(cv.newlasso)
+coef.newlasso<-as.matrix(round(coef(cv.newlasso),4))
+datatable(coef.newlasso)
+```
+
+### 5c
+
+How different are the coefficients for the full and reduced ridge regression models?
+
+```{r 5c}
+comparison.ridge<-data.table('full.ridge'=coef.ridge,'reduced.ridge'=coef.newridge,'difference'=coef.ridge-coef.newridge)
+datatable(comparison.ridge)
+```
+
+
+### 5d
+
+How different are the coefficients for the full and reduced lasso regression models?
+
+```{r 5d}
+comparison.lasso<-data.table('full.ridge'=coef.lasso,'reduced.ridge'=coef.newlasso,'difference'=coef.lasso-coef.newlasso)
+datatable(comparison.lasso)
+```
+
+
+
+### 5e
+
+Use the ridge and lasso regression models that were fit on the **reduced** training set to generate predictions on the **full** testing set.  Compute the RMSE for each set of predictions.  Add these values to the table of RMSE values that include all of the earlier RMSE results.  Round the table to a reasonable number of digits.
+
+```{r 5e}
+x_test=model.matrix(accommodations~churches+beaches+parks+theaters+museums+malls+zoo+restaurants+bars_pubs+local_services+burger_pizza+juice_bars+art_galleries+dance_clubs+swimming_pools+gyms+bakeries+beauty_spas+cafes+view_points+monuments+gardens-1,data=test)
+y_test=test$accommodations
+pred.newridge<-predict(newridge.model.fit,s=cv.newridge$lambda.1se,newx=x_test)
+rmse.newridge<-sqrt(mean((pred.newridge-y_test)^2))
+rmse[,"rmse.newridge":=rmse.newridge]
+pred.newlasso<-predict(newlasso.model.fit,s=cv.newlasso$lambda.1se,newx=x_test)
+rmse.newlasso<-sqrt(mean((pred.newlasso-y_test)^2))
+rmse[,"rmse.newlasso":=rmse.newlasso]
+datatable(rmse[, lapply(X= .SD, FUN="round.numerics",digits=4)],rownames=F)
+```
+
+### 5f
+
+What conclusions can you draw about the usage of selection procedures and regularization methods based upon this work?
+
+Answer:
+Findins:
+1)I found the RMSE for reduced ridge and reduced lasso model greatly increase compared with the full ridge and full lasso model.
+2) Lasso model perfroms better than Ridge model when the sample size is small.
+Thoughts:
+Differences:
+1) Selection procedures solve the problem by reducing predictors, while regularization procedures solve the problem by forcing the coefficients of predictors to zero (Lasso model can set some coefficients to zero, while Ridge cannot; Lasso set the coefficient of one of the correlated predictors big value and set the rest nearly zero, while Ridge set similar coefficients for correlated predictors).
+2) Selection precodures use AIC = -2logL + 2d as criteria, while regularization uses Min(sse+shrinkage penalty). With small numbers of samples, the amount of penalization that we need to get a reliable model may be so great that we have only limited predictive power. 
+
