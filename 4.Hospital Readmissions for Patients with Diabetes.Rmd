@@ -1,0 +1,512 @@
+---
+title: "One Model or Many?"
+author: "Yufan Luo, yl4070"
+date: "7/30/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment="", warning = FALSE, message = FALSE, tidy.opts=list(width.cutoff=55))
+```
+
+```{r seed}
+set.seed(35)
+```
+
+```{r libraries}
+library(data.table)
+library(DT)
+library(class)
+library(glmnet)
+library(gbm)
+library(e1071)
+library(nnet)
+library(MASS)
+library(caret)
+library(h2o)
+```
+
+```{r source_files}
+hospital<-read.csv("C:/Users/luoyu/Desktop/ML/10/final project/Diabetes and Readmissions.csv",stringsAsFactors = F)
+bc.hospital<-hospital
+```
+
+```{r know the dataset}
+names(hospital)
+```
+
+
+```{r data preparation}
+##Deal with categorical variables
+hospital$race<-as.factor(hospital$race)
+hospital$gender<-as.factor(hospital$gender)
+hospital$max_glu_serum<-as.factor(hospital$max_glu_serum)
+hospital$A1Cresult<-as.factor(hospital$A1Cresult)
+hospital$admission_type<-as.factor(hospital$admission_type)
+hospital$admission_source<-as.factor(hospital$admission_source)
+hospital$discharge_disposition<-as.factor(hospital$discharge_disposition)
+hospital$diabetesMed<-as.factor(hospital$diabetesMed)
+hospital$change<-as.factor(hospital$change)
+hospital$metformin<-as.numeric(hospital$metformin)
+hospital$repaglinide<-as.numeric(hospital$repaglinide)
+hospital$nateglinide<-as.numeric(hospital$nateglinide)
+hospital$chlorpropamide<-as.numeric(hospital$chlorpropamide)
+hospital$glimepiride<-as.numeric(hospital$glimepiride)
+hospital$glipizide<-as.numeric(hospital$glipizide)
+hospital$glyburide<-as.numeric(hospital$glyburide)
+hospital$pioglitazone<-as.numeric(hospital$pioglitazone)
+hospital$rosiglitazone<-as.numeric(hospital$rosiglitazone)
+hospital$acarbose<-as.numeric(hospital$acarbose)
+hospital$insulin<-as.numeric(hospital$insulin)
+#For attributes that have a sense of distance, transfer them into different levels
+hospital$age[which(hospital$age=="[0-50)")]=1
+hospital$age[which(hospital$age=="[50-60)")]=2
+hospital$age[which(hospital$age=="[60-70)")]=3
+hospital$age[which(hospital$age=="[70-80)")]=4
+hospital$age[which(hospital$age=="[80-100)")]=5
+hospital$age<-as.numeric(hospital$age)
+##Deal with "readmitted"
+hospital$answer<-ifelse(hospital$readmitted=="<30",1,0)
+hospital$answer<-as.numeric(hospital$answer)
+##Exclude non-informative predictors
+hospital.ex<-hospital[,-c(1,2,13,14,15,32)]
+```
+
+
+```{r data split}
+#train and test
+table(as.factor(hospital.ex$evaluation_set))
+train<-subset(hospital.ex,evaluation_set=="train")
+train<-train[,-30]
+test<-subset(hospital.ex,evaluation_set=="test")
+test<-test[,-30]
+```
+
+```{r functions}
+round.numerics<-function(x,digits=2){if(is.numeric(x)){
+  x<-round(x=x,digits=digits)
+  }
+  return(x)
+}
+```
+
+```{r datatable}
+
+```
+
+## Introduction
+
+## Models {.tabset}
+
+### Category 1: KNN {.tabset}
+
+```{r}
+##Data preparation for KNN
+str(hospital.ex)
+```
+
+#### One Model
+
+```{r cat1_one_model}
+k.values<-seq(1,20,1)
+num.k<-length(k.values)
+om.knn.results<-data.frame()
+trainknn<-train[,c(3:11)]
+testknn<-test[,c(3:11)]
+cl.train<-train[,30]
+cl.test<-test[,30]
+for(j in 1:num.k){
+  k<-k.values[j]
+  knn.k<-knn(train=trainknn,test=testknn,cl=cl.train,k=k)
+  percentage.k<-round(mean(x=knn.k==cl.test,na.rm=T),5)
+  om.knn.results[k,'k']<-k
+  om.knn.results[k,'Predictions on Testing Data']<-percentage.k
+  om.knn.results[k,'Evaluation Metric']<-percentage.k
+  }
+#select the best k
+om.knn<-data.frame()
+num<-which.max(om.knn.results$'Predictions on Testing Data')
+om.knn[1,'Approach']<-'One Model'
+om.knn[1,'Modeling Data']<-'Training Set'
+om.knn[1,'K selection']<- om.knn.results[num,'k']
+om.knn[1,'Predictions on Testing Data']<-om.knn.results[num,'Predictions on Testing Data']
+om.knn[1,'Evaluation Metric']<-om.knn.results[num,'Predictions on Testing Data']
+#Evaluation
+datatable(om.knn)
+```
+
+#### Many Models
+
+```{r cat1_many_models}
+#results dataframe
+i.values<-seq(1,5,1)
+num.i<-length(i.values)
+mm.knn.results<-data.frame()
+for(i in 1:num.i){
+  for(j in 1:num.k){
+    i<-i.values[i]
+    trainset<-subset(train,age==i)
+    testset<-subset(test,age==i)
+    trainknn<-trainset[,c(4:11)]
+    testknn<-testset[,c(4:11)]
+    cl.train<-trainset[,30]
+    cl.test<-testset[,30]
+    k<-k.values[j]
+    knn.j<-knn(train=trainknn,test=testknn,cl=cl.train,k=k)
+    percentage.j<-round(mean(x=knn.j==cl.test,na.rm=T),5)
+    mm.knn.results[(i-1)*20+1:20,'age.group']<-i
+    mm.knn.results[(i-1)*20+k,'k']<-k
+    mm.knn.results[(i-1)*20+k,'classification.rate']<-percentage.j
+    }
+}
+#select the best k
+mm.knn<-data.frame()
+for (j in 1:num.i){
+  j<-i.values[j]
+  data.sub<-subset(mm.knn.results,age.group==j)
+  num<-which.max(data.sub$classification.rate)
+  mm.knn[j,'Approach']<-'Many Models'
+  mm.knn[j,'age.subgroup']<-j
+  mm.knn[j,'Models on Training Data Subgroup']<-data.sub[num,'k']
+  mm.knn[j,'Predictions on Testing Data Subgroup']<-data.sub[num,'classification.rate']
+}
+mm.knn$Evaluation.Metric<-round(mm.knn[1,4]*1671/10319+mm.knn[2,4]*1778/10319+mm.knn[3,4]*2258/10319+mm.knn[4,4]*2581/10319+mm.knn[5,4]*2031/10319,5)
+datatable(mm.knn)
+```
+
+### Category 2:  Logistics Regression {.tabset}
+
+#### One Model
+
+```{r cat2_one_model}
+om.lr<-glm(answer~age+number_inpatient+num_lab_procedures+num_medications+time_in_hospital+number_diagnoses+admission_type+race+number_emergency+num_procedures+number_outpatient+diabetesMed+A1Cresult,data=train,family='binomial')
+pred.om.lr<-round(predict(om.lr,newdata=test,type='response'),0)
+percentage.om.lr<-round(mean(x=test$answer==pred.om.lr,na.rm=T),5)
+om.lr<-data.frame()
+om.lr[1,'Approach']<-'One Model'
+om.lr[1,'Modeling Data']<-'Training Set'
+om.lr[1,'Model']<- 'Logistics Regression'
+om.lr[1,'Predictions on Testing Data']<-percentage.om.lr
+om.lr[1,'Evaluation Metric']<-percentage.om.lr
+datatable(om.lr)
+```
+
+#### Many Models
+
+```{r cat2_many_models}
+mm.lr.results<-data.frame()
+for(i in 1:num.i){
+  i<-i.values[i]
+  trainset<-subset(train,age==3)
+  testset<-subset(test,age==3)
+  mm.lr<-glm(answer~number_inpatient+num_lab_procedures+num_medications+time_in_hospital+number_diagnoses+admission_type+race+number_emergency+num_procedures+number_outpatient+diabetesMed+A1Cresult,data=trainset,family='binomial')
+  pred.mm.lr<-round(predict(mm.lr,newdata=testset,type='response',se.fit=F),0)
+  percentage.mm.lr<-round(mean(x=testset$answer==pred.mm.lr,na.rm=T),5)
+  mm.lr.results[i,'age.group']<-i
+  mm.lr.results[i,'classification.rate']<-percentage.mm.lr
+}
+mm.lr<-data.frame()
+for (j in 1:num.i){
+  j<-i.values[j]
+  mm.lr[j,'Approach']<-'Many Models'
+  mm.lr[j,'age.subgroup']<-mm.lr.results[j,'age.group']
+  mm.lr[j,'Models on Training Data Subgroup']<-'Logistics Regression'
+  mm.lr[j,'Predictions on Testing Data Subgroup']<-mm.lr.results[j,'classification.rate']
+}
+mm.lr$Evaluation.Metric<-round(mm.lr[1,4]*1671/10319+mm.lr[2,4]*1778/10319+mm.lr[3,4]*2258/10319+mm.lr[4,4]*2581/10319+mm.lr[5,4]*2031/10319,5)
+datatable(mm.lr)
+```
+
+
+### Category 3:  Lasso Regression {.tabset}
+
+#### One Model
+
+```{r cat3_one_model}
+x_train=model.matrix(answer~.-1,data=train)
+y_train=train$answer
+x_test=model.matrix(answer~.-1,data=test)
+y_test=test$answer
+one.lasso.fit<-glmnet(x_train,y_train,alpha=1,family='binomial')
+one.lasso.cv<-cv.glmnet(x_train,y_train,alpha=1,family='binomial')
+#predicted classifications
+pred.one.lasso<-round(predict(one.lasso.fit,s=one.lasso.cv$lambda.1se,newx=x_test,type='response'))
+percentage.one.lasso<-round(mean(x=y_test==pred.one.lasso,na.rm=T),5)
+#Evaluation
+om.lasso<-data.frame()
+om.lasso[1,'Approach']<-'One Model'
+om.lasso[1,'Modeling Data']<-'Training Set'
+om.lasso[1,'Lambda Selection']<-round(one.lasso.cv$lambda.1se,5)
+om.lasso[1,'Predictions on Testing Data']<-percentage.one.lasso
+om.lasso[1,'Evaluation Metric']<-percentage.one.lasso
+datatable(om.lasso)
+```
+
+#### Many Models
+
+```{r cat3_many_models}
+mm.lasso.results<-data.frame()
+for(i in 1:num.i){
+  i<-i.values[i]
+  trainset<-subset(train,age==i)
+  trainset<-trainset[,-3]
+  testset<-subset(test,age==i)
+  testset<-testset[,-3]
+  x_train<-model.matrix(answer~.-1,data=trainset)
+  y_train<-trainset$answer
+  x_test<-model.matrix(answer~.-1,data=testset)
+  y_test<-testset$answer
+  mm.lasso.fit<-glmnet(x_train,y_train,alpha=1,family='binomial')
+  mm.lasso.cv<-cv.glmnet(x_train,y_train,alpha=1,family='binomial')
+  pred.mm.lasso<-round(
+    predict(
+      mm.lasso.fit,
+      s=mm.lasso.cv$lambda.1se,
+      newx=x_test,
+      type='response'))
+  precentage.mm.lasso<-round(mean(x=y_test==pred.mm.lasso,na.rm=T),5)
+  mm.lasso.results[i,'age.group']<-i
+  mm.lasso.results[i,'classification.rate']<-precentage.mm.lasso
+  mm.lasso.results[i,'lambda.selection']<-mm.lasso.cv$lambda.1se
+}
+datatable(mm.lasso.results)
+mm.lasso<-data.frame()
+for (j in 1:num.i){
+  j<-i.values[j]
+  mm.lasso[j,'Approach']<-'Many Models'
+  mm.lasso[j,'age.subgroup']<-mm.lasso.results[j,'age.group']
+  mm.lasso[j,'Lambda Selection for Training Data Subgroup']<-round(mm.lasso.results[j,'lambda.selection'],5)
+  mm.lasso[j,'Predictions on Testing Data Subgroup']<-mm.lasso.results[j,'classification.rate']
+}
+mm.lasso$Evaluation.Metric<-round(mm.lasso[1,4]*1671/10319+mm.lasso[2,4]*1778/10319+mm.lasso[3,4]*2258/10319+mm.lasso[4,4]*2581/10319+mm.lasso[5,4]*2031/10319,5)
+datatable(mm.lasso)
+```
+
+
+### Category 4:  Boosting {.tabset}
+
+#### One Model
+
+```{r cat4_one_model}
+boost=gbm(answer~discharge_disposition+number_inpatient+num_lab_procedures+num_medications+time_in_hospital+number_diagnoses+admission_type+race+number_emergency+num_procedures+number_outpatient+diabetesMed+A1Cresult,
+          data=train,
+          distribution="bernoulli",
+          n.trees=4000,
+          interaction.depth=5,
+          shrinkage=0.01,
+          n.cores=6,
+          )
+pred.one.boost=round(predict(boost,n.trees=4000,newdata=test,type='response'))
+percentage.one.boost=round(mean(x=test$answer==pred.one.boost,na.rm=T),5)
+om.boost<-data.frame()
+om.boost[1,'Approach']<-'One Model'
+om.boost[1,'Modeling Data']<-'Training Set'
+om.boost[1,'Model']<- 'Boosting'
+om.boost[1,'Predictions on Testing Data']<-percentage.one.boost
+om.boost[1,'Evaluation Metric']<-percentage.one.boost
+datatable(om.boost)
+```
+
+#### Many Models
+
+```{r cat4_many_models}
+mm.boost.results<-data.frame()
+for(i in 1:num.i){
+  i<-i.values[i]
+  trainset<-subset(train,age==i)
+  trainset<-trainset[,-3]
+  testset<-subset(test,age==i)
+  mm.boost=gbm(answer~discharge_disposition+number_inpatient+num_lab_procedures+num_medications+time_in_hospital+number_diagnoses+admission_type+race+number_emergency+num_procedures+number_outpatient+diabetesMed+A1Cresult,
+               data=trainset,
+               distribution="bernoulli",
+               n.trees=1000,
+               interaction.depth=5,
+               shrinkage=0.01,
+               n.cores=6,
+               )
+  pred.mm.boost=round(
+    predict(
+      mm.boost,
+      n.trees=800,
+      newdata=testset,
+      type='response'))
+  percentage.mm.boost=round(mean(x=testset$answer==pred.mm.boost,na.rm=T),5)
+  mm.boost.results[i,'age.group']<-i
+  mm.boost.results[i,'classification.rate']<-percentage.mm.boost
+}
+mm.boost<-data.frame()
+for (j in 1:num.i){
+  j<-i.values[j]
+  mm.boost[j,'Approach']<-'Many Models'
+  mm.boost[j,'age.subgroup']<-mm.boost.results[j,'age.group']
+  mm.boost[j,'Models on Training Data Subgroup']<-'Boosting'
+  mm.boost[j,'Predictions on Testing Data Subgroup']<-mm.boost.results[j,'classification.rate']
+}
+mm.boost$Evaluation.Metric<-round(mm.boost[1,4]*1671/10319+mm.boost[2,4]*1778/10319+mm.boost[3,4]*2258/10319+mm.boost[4,4]*2581/10319+mm.boost[5,4]*2031/10319,5)
+datatable(mm.boost)
+```
+
+
+### Category 5:  Neural Networks {.tabset}
+
+#### One Model
+
+```{r cat5_one_model}
+trainnn<-train
+testnn<-test
+trainnn$answer<-as.factor(trainnn$answer)
+testnn$answer<-as.factor(testnn$answer)
+om.nn<-nnet(answer~discharge_disposition+number_inpatient+num_lab_procedures+num_medications,data=trainnn,size=3,decay=0.1,type='class')
+pred.om.nn<-predict(om.nn,newdata=testnn,type='class')
+percentage.om.nn<-round(mean(x=testnn$answer==pred.om.nn,na.rm=T),5)
+om.nn<-data.frame()
+om.nn[1,'Approach']<-'One Model'
+om.nn[1,'Modeling Data']<-'Training Set'
+om.nn[1,'Model']<- 'Neural Networks'
+om.nn[1,'Predictions on Testing Data']<-percentage.om.nn
+om.nn[1,'Evaluation Metric']<-percentage.om.nn
+datatable(om.nn)
+```
+
+#### Many Models
+
+```{r cat5_many_models}
+mm.nn.results<-data.frame()
+for(i in 1:num.i){
+  i<-i.values[i]
+  trainset<-subset(trainnn,age==i)
+  testset<-subset(testnn,age==i)
+  mm.nn<-nnet(answer~discharge_disposition+number_inpatient+num_lab_procedures+num_medications,data=trainnn,size=3,decay=0.1,type='class')
+  pred.mm.nn<-predict(mm.nn,newdata=testset,type='class')
+  percentage.mm.nn<-round(mean(x=testset$answer==pred.mm.nn,na.rm=T),5)
+  mm.nn.results[i,'age.group']<-i
+  mm.nn.results[i,'classification.rate']<-percentage.mm.nn
+}
+mm.nn<-data.frame()
+for (j in 1:num.i){
+  j<-i.values[j]
+  mm.nn[j,'Approach']<-'Many Models'
+  mm.nn[j,'age.subgroup']<-mm.nn.results[j,'age.group']
+  mm.nn[j,'Models on Training Data Subgroup']<-'Neural Networks'
+  mm.nn[j,'Predictions on Testing Data Subgroup']<-mm.nn.results[j,'classification.rate']
+}
+mm.nn$Evaluation.Metric<-round(mm.nn[1,4]*1671/10319+mm.nn[2,4]*1778/10319+mm.nn[3,4]*2258/10319+mm.nn[4,4]*2581/10319+mm.nn[5,4]*2031/10319,5)
+datatable(mm.nn)
+```
+
+## Scoreboard
+
+```{r scoreboard}
+Category<-c('Category 1','Category 2','Category 3','Category 4','Category 5')
+Modeling.Type<-c('K Nearest Neighbors','Logistic Regression','Lasso','Boosting','Neural Networks')
+Proportion.Correctly.Classified.One.Model<-c(om.knn$'Evaluation Metric',om.lr$'Evaluation Metric',om.lasso$'Evaluation Metric',om.boost$'Evaluation Metric',om.nn$'Evaluation Metric')
+Proportion.Correctly.Classified.Many.Models<-c(mm.knn$Evaluation.Metric[1],mm.lr$Evaluation.Metric[1],mm.lasso$Evaluation.Metric[1],mm.boost$Evaluation.Metric[1],mm.nn$Evaluation.Metric[1])
+scoreboard<-data.frame(Category,Modeling.Type,Proportion.Correctly.Classified.One.Model,Proportion.Correctly.Classified.Many.Models)
+scoreboard$Difference<-scoreboard$Proportion.Correctly.Classified.One.Model-scoreboard$Proportion.Correctly.Classified.Many.Models
+datatable(scoreboard)
+```
+
+## Discussion
+KNN
+Method Selection: 
+I choose KNN as my first method to build model because KNN is robust when we have noisy and large dataset.
+Attributes Selection:
+Because KNN doesn’t provide any prediction for the importance or coefficients of variables, I took several steps to choose attributes: 1)Use all numeric variables; 2)Eliminate some of them based on my common-sense (for example, some of the tests results may not be useful); 3)Find the importance of variables based on the results of other models, such as Boosting, and add those informative variables after doing one hot coding if they are categorical variables. However, I found these three models provide similar results, so I choose the one with the least variables.
+Process explanation:
+When we intend to find out the class of certain point, its neighbors will vote to decide.
+Disadvantage: 
+1) What is the value of parameter K? I need to determine the value of K, so I write a loop to test the results from 1 to 20.
+2) Which attributes to use? There are more than 40 attributes and I need to test fore several times to choose the most appropriate ones.
+3)Computation cost is high. 
+
+Logistics Regression
+Method Selection:
+Logistics Regression is a basic machine learning method, but also very useful and important. I want to have a look at how it performs with this complicated dataset.
+Attributes Selection:
+I firstly used all the attributes(except 'Discharge position') and have a result around 0.8883. Then I used the attributes with significant p-values and got a similar results, so I used the latter.
+The reason I didn't use "Discharge position" is because level 'Neonate discharged to another hospital for neonatal aftercare' doesn't exist in the age=3 training set but exists in the age=3 testing set.
+Disadvantages:
+1)Overfitting the model
+2)It is difficult to select variables
+
+Lasso
+Method Selection:
+I choose Lasso because this dataset contains lots of variables and lasso can help me with variable selection by setting some coefficients to zero.
+Attributes Selection:
+Just as mentioned above, the characteristics of Lasso make this attributes selection process much easier by setting some coefficients to zero. Thus, I use all the variables to let Lasso do my job.
+Process explanation:
+Lasso provides overfitting by adding penalty when we add too many variables (increase the complexity of the model)
+Disadvantages:
+1)It is hard to interpret the results;
+2)This method makes analyst stop thinking.
+
+Boosting
+Method Selection:
+Boosting is an ensemble method, turning weak learner to strong learner. I think it is useful for a complicated dataset
+Attributes Selection and tune parameters:
+I firstly use all variables to build the boost model by adding cross-validation to choose the best number of trees and prevent overfitting.
+boost=gbm(answer~.,
+          data=train,
+          distribution="bernoulli",
+          n.trees=5000,
+          interaction.depth=5,
+          shrinkage=0.01,
+          n.cores=6,
+          cv.fold=3)
+After building the first boosting model, I use “gbm.perf(boost,method=’cv’)” to see the best number of trees and use “ summary(boost)” to see the importance of variables, and then I use the best number of trees and select the top 13 important variables as final code.
+Process explanation:
+Boosting fit the new predictor to the residual errors made by the previous predictor.
+Disadvantage:
+1)It is difficult to tune parameters.
+2)We need to figure out how to prevent overfitting
+3)Time consuming
+
+Neural Networks
+Neural networks are very helpful when having complicated dataset。
+Attributes Selection:
+I use the following code to choose variables:
+om.nn<-train(answer~.,data=trainnn,method='lda')
+After running like forever, I decided to use what I found from ‘summary(boost)’, the top 4 important variables.
+I also tried to use all variables after finding this method is actually pretty fast. However I found the accuracy re similar, I decided to go with the old variables: discharge_disposition+number_inpatient+num_lab_procedures+num_medications
+Tune parameters:
+At beginning, I continue use ‘train’ method from ‘caret’ package.
+om.nn<-train(answer~discharge_disposition+number_inpatient+num_lab_procedures+num_medications,data=trainnn,method='nnet')
+The process went for 10 hours and I got the results around ‘0.89’. However, this process just took so long and I couldn’t even imagine to go through the same process for ‘Many Models’.
+So I decided to use ‘nnet’ function using size =5 and other default settings. This process is not time consuming and I still got the results around ‘0.89’. Therefore, I tried different ‘size’ (from 1-10) and ‘decay’ value (from 0 – 1). After several testing, I finally went with my current settings.
+Disadvantages:
+1)I feel like there are too many things to tune and I am a little bit lost.
+
+SVM (Deleted)
+At beginning, I selected SVM as my fourth model. However, this model takes a long time to run, so I decided to use another one. But I still want to keep what I learned from this process here.
+Method selection: SVM is good at finding boundaries for classification problems
+Attributes Selection:
+I tried to run SVM with all the variables, but it will run forever. I stopped this process and use the top 4 important variables selected by boosting methods.
+Tune parameters:
+om.tuned_parameters<-tune.svm(answer~discharge_disposition+number_inpatient+num_lab_procedures+num_medications,
+                          type='C-classification',
+                          kernel='radial',
+                          data=trainsvm,
+                          gamma=10^(-5:-1),
+                          cost=10^(-3:1))
+om.svm<-om.tuned_parameters$best.model
+I give R a range of gamma and cost, so it can run to see which is the best choice. 
+Process explanation:
+Finding the optimal boundary between outputs.
+Disadvantages:
+1)It is extremely time-consuming when having a huge number of variables;
+2)The model is sensitive to the settings of parameters, so we need to choose the parameters carefully.
+3)I feel like it is too troublesome when having more than two classes.
+
+Conclusions:
+1)I found the results of different models are quite similar. 
+2)Variable selection is really important, so I felt like boosting is a great method to tell the importance of different variables.
+3)Increasing dataset increases the time for running a model. Big dataset is really a problem when tuning parameters (needs to run the model for several times), but big dataset also increases the accuracy of model and allows us to do more things, such as cross-validation. 
+4)These methods generate similar results. 
+5)Logestic regression and neural networks perform worth when applying many models.
+
+
+## References
+Disadvantage of logistic regression. Referred from: https://www.theclassroom.com/disadvantages-logistic-regression-8574447.html
+What are disadvantages of using the lasso for variable selection for regression?. Referred from: https://stats.stackexchange.com/questions/7935/what-are-disadvantages-of-using-the-lasso-for-variable-selection-for-regression
